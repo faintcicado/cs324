@@ -147,7 +147,7 @@ if __name__ == "__main__":
                         default=1000, help='Number of epochs to run for')
     parser.add_argument('--max_norm', type=float, default=10.0)
     parser.add_argument('--data_size', type=int,
-                        default=1000, help='Size of the total dataset')
+                        default=1000000, help='Size of the total dataset')
     parser.add_argument('--portion_train', type=float, default=0.8,
                         help='Portion of the total dataset used for training')
 

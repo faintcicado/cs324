@@ -27,3 +27,7 @@ class AverageMeter(object):
 @torch.no_grad()
 def accuracy(output, target):
     # Implementation here ...
+    _, predicted = torch.max(output, 1)
+    correct = (predicted == target).sum().item()
+    accuracy = correct / target.size(0)
+    return accuracy

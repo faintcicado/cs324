@@ -3,41 +3,60 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-
+import matplotlib.pyplot as plt
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 from dataset import PalindromeDataset
 from lstm import LSTM
 from utils import AverageMeter, accuracy
+import torch.nn as nn
 
 
 def train(model, data_loader, optimizer, criterion, device, config):
-    # TODO set model to train mode
+    model.train()
     losses = AverageMeter("Loss")
     accuracies = AverageMeter("Accuracy")
     for step, (batch_inputs, batch_targets) in enumerate(data_loader):
-        # Add more code here ...
+        batch_inputs, batch_targets = batch_inputs.to(device), batch_targets.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(batch_inputs)
+        loss = criterion(outputs, batch_targets)
+        loss.backward()
 
         # the following line is to deal with exploding gradients
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(), max_norm=config.max_norm)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.max_norm)
 
-        # Add more code here ...
-        if step % 10 == 0:
-            print(f'[{step}/{len(data_loader)}]', losses, accuracies)
+        optimizer.step()
+
+        losses.update(loss.item(), batch_inputs.size(0))
+        acc = accuracy(outputs, batch_targets)
+        accuracies.update(acc, batch_inputs.size(0))
+
+
+        # if step % 10 == 0:
+        #     print(f'[{step}/{len(data_loader)}] Loss: {losses.avg:.4f}, Accuracy: {accuracies.avg:.4f}')
     return losses.avg, accuracies.avg
 
 
 @torch.no_grad()
 def evaluate(model, data_loader, criterion, device, config):
-    # TODO set model to evaluation mode
+    model.eval()
     losses = AverageMeter("Loss")
     accuracies = AverageMeter("Accuracy")
     for step, (batch_inputs, batch_targets) in enumerate(data_loader):
-        # Add more code here ...
+        batch_inputs, batch_targets = batch_inputs.to(device), batch_targets.to(device)
+
+        outputs = model(batch_inputs)
+        loss = criterion(outputs, batch_targets)
+
+        losses.update(loss.item(), batch_inputs.size(0))
+        acc = accuracy(outputs, batch_targets)
+        accuracies.update(acc, batch_inputs.size(0))
+
         if step % 10 == 0:
-            print(f'[{step}/{len(data_loader)}]', losses, accuracies)
+            print(f'[{step}/{len(data_loader)}] Loss: {losses.avg:.4f}, Accuracy: {accuracies.avg:.4f}')
     return losses.avg, accuracies.avg
 
 
@@ -45,33 +64,66 @@ def main(config):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Initialize the model that we are going to use
-    model = ...  # fixme
+    model = LSTM(config.input_length, config.input_dim, config.num_hidden, config.num_classes,device)
     model.to(device)
 
     # Initialize the dataset and data loader
-    dataset = ...  # fixme
+    dataset = PalindromeDataset(config.input_length, config.data_size)
     # Split dataset into train and validation sets
-    train_dataset, val_dataset = ...  # fixme
+    train_size = int(config.portion_train * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
     # Create data loaders for training and validation
-    train_dloader = ...  # fixme
-    val_dloader = ...  # fixme
+    train_dloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=2)
+    val_dloader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=2)
 
     # Setup the loss and optimizer
-    criterion = ...  # fixme
-    optimizer = ...  # fixme
-    scheduler = ...  # fixme
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=config.learning_rate)
+
+    # 记录每个epoch的损失和准确率
+    train_losses = []
+    train_accuracies = []
+    val_losses = []
+    val_accuracies = []
 
     for epoch in range(config.max_epoch):
+
         # Train the model for one epoch
-        train_loss, train_acc = train(
-            model, train_dloader, optimizer, criterion, device, config)
+        train_loss, train_acc = train(model, train_dloader, optimizer, criterion, device, config)
+        train_losses.append(train_loss)
+        train_accuracies.append(train_acc)
 
         # Evaluate the trained model on the validation set
-        val_loss, val_acc = evaluate(
-            model, val_dloader, criterion, device, config)
+        val_loss, val_acc = evaluate(model, val_dloader, criterion, device, config)
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
 
+        print(f'Epoch {epoch + 1}/{config.max_epoch}, Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}, Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}')
+    
     print('Done training.')
 
+    # 绘制训练和验证损失
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(train_losses, label='Train Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss over Epochs')
+    plt.legend()
+
+    # 绘制训练和验证准确率
+    plt.subplot(1, 2, 2)
+    plt.plot(train_accuracies, label='Train Accuracy')
+    plt.plot(val_accuracies, label='Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy over Epochs')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
 
@@ -92,10 +144,10 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float,
                         default=0.001, help='Learning rate')
     parser.add_argument('--max_epoch', type=int,
-                        default=100, help='Number of epochs to run for')
+                        default=1000, help='Number of epochs to run for')
     parser.add_argument('--max_norm', type=float, default=10.0)
     parser.add_argument('--data_size', type=int,
-                        default=100000, help='Size of the total dataset')
+                        default=1000, help='Size of the total dataset')
     parser.add_argument('--portion_train', type=float, default=0.8,
                         help='Portion of the total dataset used for training')
 
